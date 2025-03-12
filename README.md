@@ -85,14 +85,14 @@ Start using Yescoin Bot by registering through the following link:
    Copy the project to your local machine:
 
    ```bash
-   git clone https://github.com/livexords-nw/Animix-bot.git
+   git clone https://github.com/livexords-nw/yescoin-bot.git
    ```
 
 2. **Navigate to the Project Folder**  
    Move to the project directory:
 
    ```bash
-   cd Animix-bot
+   cd yescoin-bot
    ```
 
 3. **Install Dependencies**  

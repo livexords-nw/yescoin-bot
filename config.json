@@ -2,6 +2,8 @@
     "task": true,   
     "upgrade": true,
     "farming": true,
+    "proxy": false,
+    "thread": 1,
     "delay_account_switch": 10,
     "delay_loop": 3000
 }

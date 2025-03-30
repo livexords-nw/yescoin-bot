@@ -2,54 +2,46 @@
 
 <h1 align="center">Yescoin Bot</h1>
 
-<p align="center">Automate tasks in Yescoin to enhance your efficiency and maximize your results!</p>
+<p align="center">Automate tasks in Yescoin to enhance your efficiency and maximize your results! 🚀</p>
 
 ---
 
 ## 🚀 **About the Bot**
 
-The Yescoin Bot is designed to automate various tasks in **Yescoin**, including:
+Yescoin Bot is your go-to automation tool for Yescoin, designed to simplify your workflow and boost productivity. With Yescoin Bot, you get:
 
-- **Auto Task:** Automatically solving tasks 🤖
-- **Auto Farming:** Automatic farming for abundant harvest 🌾
-- **Auto Upgrade:** Auto-upgrade for optimal performance 🚀
-- **Multi-Account Support:** Manage multiple accounts simultaneously.
-- **Proxy Support:** Dynamically assign proxies to each account.
-- **Delay Loop and Account Switching:** Configure custom delays for looping tasks and switching between accounts.
+- 🤖 **Auto Task:** Automatically solve tasks.
+- 🌾 **Auto Farming:** Enjoy automatic farming for an abundant harvest.
+- 🚀 **Auto Upgrade:** Upgrade automatically for optimal performance.
+- 👥 **Multi-Account Support:** Manage multiple accounts simultaneously.
+- 🔌 **Proxy Support:** Dynamically assign proxies to each account.
+- 🧵 **Thread System:** Execute tasks concurrently using configurable threads.
+- ⏱️ **Delay Loop & Account Switching:** Configure custom delays for looping tasks and switching between accounts.
 
-With this bot, you can save time and maximize your outcomes without manual intervention.
+Yescoin Bot is built to save you time and maximize outcomes without manual intervention.
 
 ---
 
-## 🌟 Version v1.0.0
+## 🌟 Version v1.0.1
 
 ### Updates
 
-- **Initial Release:**  
-  Welcome to the initial release of Yescoin Bot. This version brings you the core automation features along with multi-account and proxy support to optimize your workflow.
-
----
-
-### **Features in This Version:**
-
-- **Auto Task:** Automatically solve tasks 🤖
-- **Auto Farming:** Engage in automatic farming for abundant harvest 🌾
-- **Auto Upgrade:** Upgrade automatically for optimal performance 🚀
-- **Multi-Account Support:** Manage multiple accounts simultaneously.
-- **Proxy Support:** Dynamically assign proxies to different accounts.
-- **Delay Loop and Account Switching:** Set custom delays for looping tasks and switching between accounts.
+- **Added Thread System:** Introduced a new thread system to enhance task execution efficiency.
+- **Added Proxy Option in Configuration:** Now you can enable or disable proxy usage directly in the `config.json` file.
 
 ---
 
 ## ⚙️ **Configuration in `config.json`**
 
-Below is the configuration table for the Yescoin Bot:
+Below is the updated configuration for Yescoin Bot:
 
 | **Function**           | **Description**                             | **Default** |
 | ---------------------- | ------------------------------------------- | ----------- |
 | `task`                 | Automatically solving tasks                 | `true`      |
 | `upgrade`              | Auto-upgrade for optimal performance        | `true`      |
 | `farming`              | Automatic farming for abundant harvest      | `true`      |
+| `proxy`                | Enable proxy usage for account management   | `false`     |
+| `thread`               | Number of threads for concurrent tasks      | `1`         |
 | `delay_account_switch` | Delay between account switches (in seconds) | `10`        |
 | `delay_loop`           | Delay before the next loop (in seconds)     | `3000`      |
 
@@ -60,6 +52,8 @@ And here is a sample `config.json`:
   "task": true,
   "upgrade": true,
   "farming": true,
+  "proxy": false,
+  "thread": 1,
   "delay_account_switch": 10,
   "delay_loop": 3000
 }

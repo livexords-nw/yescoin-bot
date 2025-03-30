@@ -1,10 +1,17 @@
 from datetime import datetime
-import json
 import time
 from colorama import Fore
 import requests
-import re
-import urllib.parse
+import random
+from fake_useragent import UserAgent
+import asyncio
+import json
+import gzip
+import brotli
+import zlib
+import chardet
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 
 class yescoin:
@@ -27,9 +34,10 @@ class yescoin:
     }
 
     def __init__(self):
+        self.config = self.load_config()
         self.query_list = self.load_query("query.txt")
         self.token = None
-        self.config = self.load_config()
+        self.session = self.sessions()
 
     def banner(self) -> None:
         """Displays the banner for the bot."""
@@ -47,6 +55,68 @@ class yescoin:
             + safe_message
             + Fore.RESET
         )
+        
+    def sessions(self):
+        session = requests.Session()
+        retries = Retry(total=3,
+                        backoff_factor=1,
+                        status_forcelist=[500, 502, 503, 504, 520])
+        session.mount('https://', HTTPAdapter(max_retries=retries))
+        return session
+    
+    def decode_response(self, response):
+        """
+        Mendekode response dari server secara umum.
+
+        Parameter:
+            response: objek requests.Response
+
+        Mengembalikan:
+            - Jika Content-Type mengandung 'application/json', maka mengembalikan objek Python (dict atau list) hasil parsing JSON.
+            - Jika bukan JSON, maka mengembalikan string hasil decode.
+        """
+        # Ambil header
+        content_encoding = response.headers.get('Content-Encoding', '').lower()
+        content_type = response.headers.get('Content-Type', '').lower()
+
+        # Tentukan charset dari Content-Type, default ke utf-8
+        charset = 'utf-8'
+        if 'charset=' in content_type:
+            charset = content_type.split('charset=')[-1].split(';')[0].strip()
+
+        # Ambil data mentah
+        data = response.content
+
+        # Dekompresi jika perlu
+        try:
+            if content_encoding == 'gzip':
+                data = gzip.decompress(data)
+            elif content_encoding in ['br', 'brotli']:
+                data = brotli.decompress(data)
+            elif content_encoding in ['deflate', 'zlib']:
+                data = zlib.decompress(data)
+        except Exception:
+            # Jika dekompresi gagal, lanjutkan dengan data asli
+            pass
+
+        # Coba decode menggunakan charset yang didapat
+        try:
+            text = data.decode(charset)
+        except Exception:
+            # Fallback: deteksi encoding dengan chardet
+            detection = chardet.detect(data)
+            detected_encoding = detection.get("encoding", "utf-8")
+            text = data.decode(detected_encoding, errors='replace')
+
+        # Jika konten berupa JSON, kembalikan hasil parsing JSON
+        if 'application/json' in content_type:
+            try:
+                return json.loads(text)
+            except Exception:
+                # Jika parsing JSON gagal, kembalikan string hasil decode
+                return text
+        else:
+            return text
 
     def load_config(self) -> dict:
         """
@@ -162,7 +232,7 @@ class yescoin:
                 login_url, headers=self.HEADERS, json=payload
             )
             login_response.raise_for_status()
-            login_data = login_response.json()
+            login_data = self.decode_response(login_response)
 
             if login_data.get("code") == 0:
                 self.token = login_data["data"]["token"]
@@ -179,7 +249,7 @@ class yescoin:
             headers = {**self.HEADERS, "Token": self.token}
             account_response = requests.get(account_url, headers=headers)
             account_response.raise_for_status()
-            account_data = account_response.json()
+            account_data = self.decode_response(account_response)
 
             if account_data.get("code") == 0:
                 data = account_data.get("data", {})
@@ -250,7 +320,7 @@ class yescoin:
                 break
 
             try:
-                result = response.json()
+                result = self.decode_response(response)
             except Exception as e:
                 self.log("❌ Error parsing JSON response.", Fore.RED)
                 break
@@ -296,7 +366,7 @@ class yescoin:
             build_info_url = f"{self.BASE_URL}build/getAccountBuildInfo"
             build_resp = requests.get(build_info_url, headers=headers)
             build_resp.raise_for_status()
-            build_json = build_resp.json()
+            build_json = self.decode_response(build_resp)
             if build_json.get("code") != 0:
                 self.log("❌ Failed to fetch build info.", Fore.RED)
                 return
@@ -322,7 +392,7 @@ class yescoin:
                 account_url = f"{self.BASE_URL}account/getAccountInfo"
                 acct_resp = requests.get(account_url, headers=headers)
                 acct_resp.raise_for_status()
-                acct_json = acct_resp.json()
+                acct_json = self.decode_response(acct_resp)
                 if acct_json.get("code") != 0:
                     self.log("❌ Failed to fetch account info.", Fore.RED)
                     break
@@ -356,7 +426,7 @@ class yescoin:
                     upgrade_url, headers=headers, data=upgrade_payload
                 )
                 upgrade_resp.raise_for_status()
-                upgrade_result = upgrade_resp.json()
+                upgrade_result = self.decode_response(upgrade_resp)
                 if (
                     upgrade_result.get("code") == 0
                     and upgrade_result.get("data") is True
@@ -400,7 +470,7 @@ class yescoin:
             return
 
         try:
-            result = response.json()
+            result = self.decode_response(response)
         except Exception as e:
             self.log("❌ Error parsing JSON response from task list.", Fore.RED)
             return
@@ -444,7 +514,7 @@ class yescoin:
                     continue
 
                 try:
-                    click_result = click_response.json()
+                    click_result = self.decode_response(click_response)
                 except Exception as e:
                     self.log(
                         f"❌ Error parsing JSON from clickTask for Task ID {task_id}.",
@@ -477,7 +547,7 @@ class yescoin:
                     continue
 
                 try:
-                    check_result = check_response.json()
+                    check_result = self.decode_response(check_response)
                 except Exception as e:
                     self.log(
                         f"❌ Error parsing JSON from checkTask for Task ID {task_id}.",
@@ -510,7 +580,7 @@ class yescoin:
                     continue
 
                 try:
-                    claim_result = claim_response.json()
+                    claim_result = self.decode_response(claim_response)
                 except Exception as e:
                     self.log(
                         f"❌ Error parsing JSON from claimTaskReward for Task ID {task_id}.",
@@ -557,7 +627,7 @@ class yescoin:
             return
 
         try:
-            result = response.json()
+            result = self.decode_response(response)
         except Exception as e:
             self.log("❌ Error parsing JSON response from mission list.", Fore.RED)
             return
@@ -602,7 +672,7 @@ class yescoin:
                     continue
 
                 try:
-                    click_result = click_response.json()
+                    click_result = self.decode_response(click_response)
                 except Exception as e:
                     self.log(
                         f"❌ Error parsing JSON from clickDailyMission for Mission ID {mission_id}.",
@@ -636,7 +706,7 @@ class yescoin:
                     continue
 
                 try:
-                    check_result = check_response.json()
+                    check_result = self.decode_response(check_response)
                 except Exception as e:
                     self.log(
                         f"❌ Error parsing JSON from checkDailyMission for Mission ID {mission_id}.",
@@ -670,7 +740,7 @@ class yescoin:
                     continue
 
                 try:
-                    claim_result = claim_response.json()
+                    claim_result = self.decode_response(claim_response)
                 except Exception as e:
                     self.log(
                         f"❌ Error parsing JSON from claimReward for Mission ID {mission_id}.",
@@ -788,67 +858,86 @@ class yescoin:
             requests.delete = self._original_requests["delete"]
 
 
-if __name__ == "__main__":
-    yes = yescoin()
-    index = 0
-    max_index = len(yes.query_list)
+async def process_account(account, original_index, account_label, yes, config):
+    # Menampilkan informasi akun
+    display_account = account[:10] + "..." if len(account) > 10 else account
+    yes.log(f"👤 Processing {account_label}: {display_account}", Fore.YELLOW)
+    
+    # Override proxy jika diaktifkan
+    if config.get("proxy", False):
+        yes.override_requests()
+    else:
+        yes.log("[CONFIG] Proxy: ❌ Disabled", Fore.RED)
+    
+    # Login (fungsi blocking, dijalankan di thread terpisah) dengan menggunakan index asli (integer)
+    await asyncio.to_thread(yes.login, original_index)
+    
+    yes.log("🛠️ Starting task execution...", Fore.CYAN)
+    tasks_config = {
+        "task": "Automatically solving tasks 🤖",
+        "farming": "Automatic farming for abundant harvest 🌾",
+        "upgrade": "Auto-upgrade for optimal performance 🚀"
+    }
+    
+    for task_key, task_name in tasks_config.items():
+        task_status = config.get(task_key, False)
+        color = Fore.YELLOW if task_status else Fore.RED
+        yes.log(f"[CONFIG] {task_name}: {'✅ Enabled' if task_status else '❌ Disabled'}", color)
+        if task_status:
+            yes.log(f"🔄 Executing {task_name}...", Fore.CYAN)
+            await asyncio.to_thread(getattr(yes, task_key))
+    
+    delay_switch = config.get("delay_account_switch", 10)
+    yes.log(f"➡️ Finished processing {account_label}. Waiting {Fore.WHITE}{delay_switch}{Fore.CYAN} seconds before next account.", Fore.CYAN)
+    await asyncio.sleep(delay_switch)
+
+async def worker(worker_id, yes, config, queue):
+    """
+    Setiap worker akan mengambil satu akun dari antrian dan memprosesnya secara berurutan.
+    Worker tidak akan mengambil akun baru sebelum akun sebelumnya selesai diproses.
+    """
+    while True:
+        try:
+            original_index, account = queue.get_nowait()
+        except asyncio.QueueEmpty:
+            break
+        account_label = f"Worker-{worker_id} Account-{original_index+1}"
+        await process_account(account, original_index, account_label, yes, config)
+        queue.task_done()
+    yes.log(f"Worker-{worker_id} finished processing all assigned accounts.", Fore.CYAN)
+
+async def main():
+    yes = yescoin()  # Inisialisasi instance class yescoin Anda
     config = yes.load_config()
+    all_accounts = yes.query_list
+    num_threads = config.get("thread", 1)  # Jumlah worker sesuai konfigurasi
+    
     if config.get("proxy", False):
         proxies = yes.load_proxies()
-
-    yes.log(
-        "🎉 [LIVEXORDS] === Welcome to Yescoin Automation === [LIVEXORDS]", Fore.YELLOW
-    )
-    yes.log(f"📂 Loaded {max_index} accounts from query list.", Fore.YELLOW)
-
+    
+    yes.log("🎉 [LIVEXORDS] === Welcome to Yescoin Automation === [LIVEXORDS]", Fore.YELLOW)
+    yes.log(f"📂 Loaded {len(all_accounts)} accounts from query list.", Fore.YELLOW)
+    
     while True:
-        current_account = yes.query_list[index]
-        display_account = (
-            current_account[:10] + "..."
-            if len(current_account) > 10
-            else current_account
-        )
+        # Buat queue baru dan masukkan semua akun (dengan index asli)
+        queue = asyncio.Queue()
+        for idx, account in enumerate(all_accounts):
+            queue.put_nowait((idx, account))
+        
+        # Buat task worker sesuai dengan jumlah thread yang diinginkan
+        workers = [asyncio.create_task(worker(i+1, yes, config, queue)) for i in range(num_threads)]
+        
+        # Tunggu hingga semua akun di queue telah diproses
+        await queue.join()
+        
+        # Opsional: batalkan task worker (agar tidak terjadi tumpang tindih)
+        for w in workers:
+            w.cancel()
+        
+        yes.log("🔁 All accounts processed. Restarting loop.", Fore.CYAN)
+        delay_loop = config.get("delay_loop", 30)
+        yes.log(f"⏳ Sleeping for {Fore.WHITE}{delay_loop}{Fore.CYAN} seconds before restarting.", Fore.CYAN)
+        await asyncio.sleep(delay_loop)
 
-        yes.log(
-            f"👤 [ACCOUNT] Processing account {index + 1}/{max_index}: {display_account}",
-            Fore.YELLOW,
-        )
-
-        if config.get("proxy", False):
-            yes.override_requests()
-        else:
-            yes.log("[CONFIG] Proxy: ❌ Disabled", Fore.RED)
-
-        yes.login(index)
-
-        yes.log("🛠️ Starting task execution...")
-        tasks = {
-            "task": "Automatically solving tasks 🤖",
-            "farming": "Automatic farming for abundant harvest 🌾",
-            "upgrade": "Auto-upgrade for optimal performance 🚀"
-        }
-
-        for task_key, task_name in tasks.items():
-            task_status = config.get(task_key, False)
-            yes.log(
-                f"[CONFIG] {task_name}: {'✅ Enabled' if task_status else '❌ Disabled'}",
-                Fore.YELLOW if task_status else Fore.RED,
-            )
-
-            if task_status:
-                yes.log(f"🔄 Executing {task_name}...")
-                getattr(yes, task_key)()
-
-        if index == max_index - 1:
-            yes.log("🔁 All accounts processed. Restarting loop.")
-            yes.log(
-                f"⏳ Sleeping for {config.get('delay_loop', 30)} seconds before restarting."
-            )
-            time.sleep(config.get("delay_loop", 30))
-            index = 0
-        else:
-            yes.log(
-                f"➡️ Switching to the next account in {config.get('delay_account_switch', 10)} seconds."
-            )
-            time.sleep(config.get("delay_account_switch", 10))
-            index += 1
+if __name__ == "__main__":
+    asyncio.run(main())

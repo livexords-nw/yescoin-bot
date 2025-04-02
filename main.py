@@ -191,6 +191,7 @@ class yescoin:
 
         # Decode token dari URL-encoded menjadi string biasa
         decoded_token = urllib.parse.unquote(token)
+        self.log(str(decoded_token))
 
         # Cek apakah token mengandung parameter "user=" atau "query="
         for param in ["user=", "query="]:
@@ -224,7 +225,8 @@ class yescoin:
 
         payload = {"code": decoded_token}
         payload["code"] = reduce_backslashes(payload["code"])
-        login_url = f"{self.BASE_URL}user/login"
+        self.log("try login")
+        login_url = f"{self.BASE_URL}user/loginNew"
 
         try:
             self.log("📡 Sending login request...", Fore.CYAN)
@@ -296,66 +298,214 @@ class yescoin:
     def farming(self) -> None:
         self.log("📡 Starting farming...", Fore.CYAN)
 
-        # Farming API: collectCoin
+        # Setup untuk farming collectCoin
         farming_url = f"{self.BASE_URL}game/collectCoin"
         farming_headers = {**self.HEADERS, "Token": self.token}
 
-        data_payload = "100"  # initial payload value
-        payload_reduced = False  # flag to track if payload has been reduced
+        # Inisialisasi payload dan flag untuk pengurangan payload
+        data_payload = "100"
+        payload_reduced = False
 
+        # Outer loop: Farming coin -> Recover coin pool -> jika recover berhasil (code == 0) ulangi farming lagi
         while True:
+            # Inner loop: Farming collectCoin
+            while True:
+                try:
+                    response = requests.post(
+                        farming_url, headers=farming_headers, data=data_payload
+                    )
+                except Exception as e:
+                    self.log(f"❌ Request error: {e}", Fore.RED)
+                    break
+
+                if response.status_code != 200:
+                    self.log(
+                        f"❌ Request failed with status code {response.status_code}.",
+                        Fore.RED,
+                    )
+                    break
+
+                try:
+                    result = self.decode_response(response)
+                except Exception as e:
+                    self.log("❌ Error parsing JSON response.", Fore.RED)
+                    break
+
+                # Jika API collectCoin mengembalikan code bukan 0, lakukan penyesuaian payload
+                if result.get("code") != 0:
+                    if not payload_reduced:
+                        self.log(
+                            f"⚠️ Received error code {result.get('code')}. Reducing payload from 100 to 10 and retrying...",
+                            Fore.YELLOW,
+                        )
+                        data_payload = "10"
+                        payload_reduced = True
+                        continue  # coba lagi dengan payload yang dikurangi
+                    else:
+                        self.log(
+                            f"❌ Farming collect coin failed with code {result.get('code')}. Message: {result.get('message')}",
+                            Fore.RED,
+                        )
+                        self.log(f"📄 Response content: {response.text}", Fore.RED)
+                        break
+                else:
+                    data = result.get("data", {})
+                    collect_amount = data.get("collectAmount")
+                    collect_status = data.get("collectStatus")
+                    current_amount = data.get("currentAmount")
+                    total_amount = data.get("totalAmount")
+
+                    self.log("✅ Farming collect coin successful.", Fore.GREEN)
+                    self.log(f"💰 Coins Collected: {collect_amount}", Fore.GREEN)
+                    self.log(f"🔄 Status: {collect_status}", Fore.GREEN)
+                    self.log(f"📊 Current Amount: {current_amount}", Fore.GREEN)
+                    self.log(f"🏆 Total Amount: {total_amount}", Fore.GREEN)
+
+                self.log("⏳ Waiting for 5 seconds before the next attempt...", Fore.BLUE)
+                time.sleep(5)
+
+            # End of farming coin inner loop
+
+            # Lakukan request ke API recoverCoinPool (POST tanpa payload)
+            recover_url = f"{self.BASE_URL}game/recoverCoinPool"
             try:
-                response = requests.post(
-                    farming_url, headers=farming_headers, data=data_payload
-                )
+                recover_response = requests.post(recover_url, headers=farming_headers)
             except Exception as e:
-                self.log(f"❌ Request error: {e}", Fore.RED)
+                self.log(f"❌ Request error (recoverCoinPool): {e}", Fore.RED)
                 break
 
-            if response.status_code != 200:
+            if recover_response.status_code != 200:
                 self.log(
-                    f"❌ Request failed with status code {response.status_code}.",
+                    f"❌ recoverCoinPool failed with status code {recover_response.status_code}.",
                     Fore.RED,
                 )
                 break
 
             try:
-                result = self.decode_response(response)
+                recover_result = self.decode_response(recover_response)
             except Exception as e:
-                self.log("❌ Error parsing JSON response.", Fore.RED)
+                self.log("❌ Error parsing JSON response (recoverCoinPool).", Fore.RED)
                 break
 
-            # If the API response code is not 0, handle it accordingly.
-            if result.get("code") != 0:
-                if not payload_reduced:
-                    self.log(
-                        f"⚠️ Received error code {result.get('code')}. Reducing payload from 100 to 10 and retrying...",
-                        Fore.YELLOW,
+            # Jika recoverCoinPool mengembalikan kode selain 0, keluar dari outer loop dan lanjut ke API selanjutnya
+            if recover_result.get("code") != 0:
+                self.log(
+                    f"ℹ️ recoverCoinPool returned non-zero code ({recover_result.get('code')}). Proceeding to next API...",
+                    Fore.YELLOW,
+                )
+                break
+            else:
+                self.log("✅ recoverCoinPool successful. Restarting farming loop...", Fore.GREEN)
+                # Reset nilai payload dan flag untuk memulai ulang farming
+                data_payload = "100"
+                payload_reduced = False
+
+        # Setelah keluar dari loop farming coin, lanjutkan dengan proses special box
+        while True:
+            # 1. Request ke API recoverSpecialBox (POST tanpa payload)
+            recover_url = f"{self.BASE_URL}game/recoverSpecialBox"
+            try:
+                recover_response = requests.post(recover_url, headers=farming_headers)
+            except Exception as e:
+                self.log(f"❌ Request error (recoverSpecialBox): {e}", Fore.RED)
+                break
+
+            if recover_response.status_code != 200:
+                self.log(
+                    f"❌ recoverSpecialBox failed with status code {recover_response.status_code}.",
+                    Fore.RED,
+                )
+                break
+
+            try:
+                recover_result = self.decode_response(recover_response)
+            except Exception as e:
+                self.log("❌ Error parsing JSON response (recoverSpecialBox).", Fore.RED)
+                break
+
+            # Jika code mengindikasikan "special box recovery count zero", keluar dari loop
+            if recover_result.get("code") == 400019:
+                self.log(
+                    "❌ Special box recovery count zero. Exiting special box loop.",
+                    Fore.RED,
+                )
+                break
+
+            if recover_result.get("code") != 0:
+                self.log(
+                    f"❌ recoverSpecialBox failed with code {recover_result.get('code')}. Message: {recover_result.get('message')}",
+                    Fore.RED,
+                )
+                break
+
+            # 2. Request ke API getSpecialBoxInfo (GET)
+            info_url = f"{self.BASE_URL}game/getSpecialBoxInfo"
+            try:
+                info_response = requests.get(info_url, headers=farming_headers)
+            except Exception as e:
+                self.log(f"❌ Request error (getSpecialBoxInfo): {e}", Fore.RED)
+                break
+
+            if info_response.status_code != 200:
+                self.log(
+                    f"❌ getSpecialBoxInfo failed with status code {info_response.status_code}.",
+                    Fore.RED,
+                )
+                break
+
+            try:
+                info_result = self.decode_response(info_response)
+            except Exception as e:
+                self.log("❌ Error parsing JSON response (getSpecialBoxInfo).", Fore.RED)
+                break
+
+            data_info = info_result.get("data", {})
+            recovery_box = data_info.get("recoveryBox")
+
+            # 3. Jika ada recoveryBox, lakukan request ke collectSpecialBoxCoin (POST dengan payload)
+            if recovery_box and recovery_box.get("boxStatus"):
+                collect_url = f"{self.BASE_URL}game/collectSpecialBoxCoin"
+                payload_collect = {"boxType": 2, "coinCount": 200}
+                try:
+                    collect_response = requests.post(
+                        collect_url, headers=farming_headers, json=payload_collect
                     )
-                    data_payload = "10"
-                    payload_reduced = True
-                    continue  # try again with the reduced payload
-                else:
+                except Exception as e:
+                    self.log(f"❌ Request error (collectSpecialBoxCoin): {e}", Fore.RED)
+                    break
+
+                if collect_response.status_code != 200:
                     self.log(
-                        f"❌ Farming collect coin failed with code {result.get('code')}. Message: {result.get('message')}",
+                        f"❌ collectSpecialBoxCoin failed with status code {collect_response.status_code}.",
                         Fore.RED,
                     )
-                    self.log(f"📄 Response content: {response.text}", Fore.RED)
                     break
+
+                try:
+                    collect_result = self.decode_response(collect_response)
+                except Exception as e:
+                    self.log("❌ Error parsing JSON response (collectSpecialBoxCoin).", Fore.RED)
+                    break
+
+                if collect_result.get("code") != 0:
+                    self.log(
+                        f"❌ collectSpecialBoxCoin failed with code {collect_result.get('code')}. Message: {collect_result.get('message')}",
+                        Fore.RED,
+                    )
+                else:
+                    data_collect = collect_result.get("data", {})
+                    collect_amount = data_collect.get("collectAmount")
+                    collect_status = data_collect.get("collectStatus")
+                    self.log("✅ Special box coin collection successful.", Fore.GREEN)
+                    self.log(f"💰 Special Box Coins Collected: {collect_amount}", Fore.GREEN)
+                    self.log(f"🔄 Status: {collect_status}", Fore.GREEN)
             else:
-                data = result.get("data", {})
-                collect_amount = data.get("collectAmount")
-                collect_status = data.get("collectStatus")
-                current_amount = data.get("currentAmount")
-                total_amount = data.get("totalAmount")
+                self.log("ℹ️ No recovery box available.", Fore.YELLOW)
 
-                self.log("✅ Farming collect coin successful.", Fore.GREEN)
-                self.log(f"💰 Coins Collected: {collect_amount}", Fore.GREEN)
-                self.log(f"🔄 Status: {collect_status}", Fore.GREEN)
-                self.log(f"📊 Current Amount: {current_amount}", Fore.GREEN)
-                self.log(f"🏆 Total Amount: {total_amount}", Fore.GREEN)
-
-            self.log("⏳ Waiting for 5 seconds before the next attempt...", Fore.BLUE)
+            self.log(
+                "⏳ Waiting for 5 seconds before next special box recovery attempt...",
+                Fore.BLUE,
+            )
             time.sleep(5)
 
     def upgrade(self) -> None:

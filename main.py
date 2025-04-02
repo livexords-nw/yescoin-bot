@@ -193,7 +193,6 @@ class yescoin:
 
         # Decode token dari URL-encoded menjadi string biasa
         decoded_token = urllib.parse.unquote(token)
-        self.log(str(decoded_token))
 
         # Cek apakah token mengandung parameter "user=" atau "query="
         for param in ["user=", "query="]:
@@ -227,7 +226,6 @@ class yescoin:
 
         payload = {"code": decoded_token}
         payload["code"] = reduce_backslashes(payload["code"])
-        self.log("try login")
         login_url = f"{self.BASE_URL}user/loginNew"
 
         try:

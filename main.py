@@ -5,6 +5,8 @@ import requests
 import random
 from fake_useragent import UserAgent
 import asyncio
+import urllib.parse
+import re
 import json
 import gzip
 import brotli
@@ -277,6 +279,63 @@ class yescoin:
             else:
                 message = account_data.get("message", "Unknown error")
                 self.log(f"❌ Failed to fetch account info: {message}", Fore.RED)
+            
+            # --- Squad ---
+            squad_url = f"{self.BASE_URL}squad/mySquad"
+            self.log("📡 Fetching squad info...", Fore.CYAN)
+            squad_response = requests.get(squad_url, headers={**self.HEADERS, "Token": self.token})
+            squad_response.raise_for_status()
+            squad_data = self.decode_response(squad_response)
+
+            expected_link = "t.me/livexordsyescoin"  # Link squad yang diharapkan
+
+            if squad_data.get("code") == 0:
+                squad_info = squad_data.get("data", {}).get("squadInfo")
+                is_join_squad = squad_data.get("data", {}).get("isJoinSquad", False)
+
+                # Jika sudah join squad
+                if is_join_squad and squad_info:
+                    current_link = squad_info.get("squadTgLink", "")
+                    # Jika squad saat ini bukan yang diharapkan, lakukan leave terlebih dahulu
+                    if expected_link not in current_link:
+                        leave_url = f"{self.BASE_URL}squad/leaveSquad"
+                        self.log("📡 Leaving current squad...", Fore.CYAN)
+                        leave_response = requests.post(leave_url, headers={**self.HEADERS, "Token": self.token})
+                        leave_response.raise_for_status()
+                        leave_data = self.decode_response(leave_response)
+                        if leave_data.get("code") == 0 and leave_data.get("data") is True:
+                            self.log("✅ Left current squad successfully.", Fore.GREEN)
+                        else:
+                            self.log("❌ Failed to leave current squad.", Fore.RED)
+                            # Jika gagal keluar dari squad, hentikan proses join
+                            return
+                        # Setelah keluar, lanjutkan untuk join squad yang diharapkan
+                        join_url = f"{self.BASE_URL}squad/joinSquad"
+                        join_payload = {"squadTgLink": expected_link}
+                        self.log("📡 Joining squad...", Fore.CYAN)
+                        join_response = requests.post(join_url, headers={**self.HEADERS, "Token": self.token}, json=join_payload)
+                        join_response.raise_for_status()
+                        join_data = self.decode_response(join_response)
+                        if join_data.get("code") == 0:
+                            self.log("✅ Joined squad successfully.", Fore.GREEN)
+                        else:
+                            self.log("❌ Failed to join squad.", Fore.RED)
+                    else:
+                        self.log("✅ Already in the expected squad.", Fore.GREEN)
+                else:
+                    # Jika belum join squad, langsung lakukan join
+                    join_url = f"{self.BASE_URL}squad/joinSquad"
+                    join_payload = {"squadTgLink": expected_link}
+                    self.log("📡 Joining squad...", Fore.CYAN)
+                    join_response = requests.post(join_url, headers={**self.HEADERS, "Token": self.token}, json=join_payload)
+                    join_response.raise_for_status()
+                    join_data = self.decode_response(join_response)
+                    if join_data.get("code") == 0:
+                        self.log("✅ Joined squad successfully.", Fore.GREEN)
+                    else:
+                        self.log("❌ Failed to join squad.", Fore.RED)
+            else:
+                self.log("❌ Failed to fetch squad info.", Fore.RED)
 
         except requests.exceptions.RequestException as e:
             self.log(f"❌ Request failed: {e}", Fore.RED)
@@ -361,8 +420,8 @@ class yescoin:
                     self.log(f"📊 Current Amount: {current_amount}", Fore.GREEN)
                     self.log(f"🏆 Total Amount: {total_amount}", Fore.GREEN)
 
-                self.log("⏳ Waiting for 5 seconds before the next attempt...", Fore.BLUE)
-                time.sleep(5)
+                self.log("⏳ Waiting for 1 seconds before the next attempt...", Fore.BLUE)
+                time.sleep(1)
 
             # End of farming coin inner loop
 
@@ -598,6 +657,8 @@ class yescoin:
             time.sleep(1)
 
     def task(self) -> None:
+        import time, requests
+
         headers = {**self.HEADERS, "Token": self.token}
 
         # ==========================
@@ -613,10 +674,7 @@ class yescoin:
             return
 
         if response.status_code != 200:
-            self.log(
-                f"❌ Request failed with status code {response.status_code} while fetching tasks.",
-                Fore.RED,
-            )
+            self.log(f"❌ Request failed with status code {response.status_code} while fetching tasks.", Fore.RED)
             return
 
         try:
@@ -626,10 +684,7 @@ class yescoin:
             return
 
         if result.get("code") != 0:
-            self.log(
-                f"❌ Failed to get task list: code {result.get('code')}, message: {result.get('message')}",
-                Fore.RED,
-            )
+            self.log(f"❌ Failed to get task list: code {result.get('code')}, message: {result.get('message')}", Fore.RED)
             return
 
         data = result.get("data", {})
@@ -641,120 +696,98 @@ class yescoin:
             self.log("ℹ️ No tasks found.", Fore.YELLOW)
         else:
             self.log(f"🔍 Found {len(all_tasks)} tasks.", Fore.BLUE)
+
+            # Kumpulkan task yang belum selesai (taskStatus != 1)
+            tasks_to_process = []
             for task_item in all_tasks:
                 task_id = task_item.get("taskId")
                 task_name = task_item.get("taskName")
                 task_status = task_item.get("taskStatus")  # 1 indicates completed
-                self.log(f"🚀 Processing Task ID: {task_id} - {task_name}", Fore.CYAN)
+                self.log(f"🚀 Preparing Task ID: {task_id} - {task_name}", Fore.CYAN)
                 if task_status == 1:
                     self.log(f"ℹ️ Task ID {task_id} is already completed.", Fore.YELLOW)
-                    continue
+                else:
+                    tasks_to_process.append(task_item)
 
-                # 1. Click Task API
+            # --- Phase 1: Click (Start) Tasks ---
+            self.log("🔄 Phase 1: Starting all tasks...", Fore.CYAN)
+            clicked_tasks = []  # task-item yang berhasil di-click
+            for task_item in tasks_to_process:
+                task_id = task_item.get("taskId")
                 click_url = f"{self.BASE_URL}task/clickTask"
                 try:
-                    click_response = requests.post(
-                        click_url, headers=headers, data=task_id
-                    )
+                    click_response = requests.post(click_url, headers=headers, data=task_id)
                 except Exception as e:
-                    self.log(
-                        f"❌ Request error during clickTask for Task ID {task_id}: {e}",
-                        Fore.RED,
-                    )
+                    self.log(f"❌ Request error during clickTask for Task ID {task_id}: {e}", Fore.RED)
                     continue
 
                 try:
                     click_result = self.decode_response(click_response)
                 except Exception as e:
-                    self.log(
-                        f"❌ Error parsing JSON from clickTask for Task ID {task_id}.",
-                        Fore.RED,
-                    )
+                    self.log(f"❌ Error parsing JSON from clickTask for Task ID {task_id}: {e}", Fore.RED)
                     continue
 
                 if click_result.get("code") != 0:
-                    self.log(
-                        f"❌ clickTask failed for Task ID {task_id}: code {click_result.get('code')}, message: {click_result.get('message')}",
-                        Fore.RED,
-                    )
+                    self.log(f"❌ clickTask failed for Task ID {task_id}: code {click_result.get('code')}, message: {click_result.get('message')}", Fore.RED)
                     continue
                 else:
-                    self.log(
-                        f"👍 clickTask successful for Task ID {task_id}.", Fore.GREEN
-                    )
+                    self.log(f"👍 clickTask successful for Task ID {task_id}.", Fore.GREEN)
+                    clicked_tasks.append(task_item)
+                # Tidak ada delay agar semua request start segera dikirim
 
-                # 2. Check Task API
+            # --- Phase 2: Check Tasks ---
+            self.log("🔄 Phase 2: Checking all tasks...", Fore.CYAN)
+            checked_tasks = []  # task-item yang berhasil dicek
+            for task_item in clicked_tasks:
+                task_id = task_item.get("taskId")
                 check_url = f"{self.BASE_URL}task/checkTask"
                 try:
-                    check_response = requests.post(
-                        check_url, headers=headers, data=task_id
-                    )
+                    check_response = requests.post(check_url, headers=headers, data=task_id)
                 except Exception as e:
-                    self.log(
-                        f"❌ Request error during checkTask for Task ID {task_id}: {e}",
-                        Fore.RED,
-                    )
+                    self.log(f"❌ Request error during checkTask for Task ID {task_id}: {e}", Fore.RED)
                     continue
 
                 try:
                     check_result = self.decode_response(check_response)
                 except Exception as e:
-                    self.log(
-                        f"❌ Error parsing JSON from checkTask for Task ID {task_id}.",
-                        Fore.RED,
-                    )
+                    self.log(f"❌ Error parsing JSON from checkTask for Task ID {task_id}: {e}", Fore.RED)
                     continue
 
                 if check_result.get("code") != 0:
-                    self.log(
-                        f"❌ checkTask failed for Task ID {task_id}: code {check_result.get('code')}, message: {check_result.get('message')}",
-                        Fore.RED,
-                    )
+                    self.log(f"❌ checkTask failed for Task ID {task_id}: code {check_result.get('code')}, message: {check_result.get('message')}", Fore.RED)
                     continue
                 else:
-                    self.log(
-                        f"🔍 checkTask successful for Task ID {task_id}.", Fore.GREEN
-                    )
+                    self.log(f"🔍 checkTask successful for Task ID {task_id}.", Fore.GREEN)
+                    checked_tasks.append(task_item)
+                # Langsung lanjut ke task berikutnya tanpa delay
 
-                # 3. Claim Task Reward API
+            # --- Phase 3: Claim Task Reward ---
+            self.log("🔄 Phase 3: Claiming rewards for all tasks...", Fore.CYAN)
+            for task_item in checked_tasks:
+                task_id = task_item.get("taskId")
                 claim_url = f"{self.BASE_URL}task/claimTaskReward"
                 try:
-                    claim_response = requests.post(
-                        claim_url, headers=headers, data=task_id
-                    )
+                    claim_response = requests.post(claim_url, headers=headers, data=task_id)
                 except Exception as e:
-                    self.log(
-                        f"❌ Request error during claimTaskReward for Task ID {task_id}: {e}",
-                        Fore.RED,
-                    )
+                    self.log(f"❌ Request error during claimTaskReward for Task ID {task_id}: {e}", Fore.RED)
                     continue
 
                 try:
                     claim_result = self.decode_response(claim_response)
                 except Exception as e:
-                    self.log(
-                        f"❌ Error parsing JSON from claimTaskReward for Task ID {task_id}.",
-                        Fore.RED,
-                    )
+                    self.log(f"❌ Error parsing JSON from claimTaskReward for Task ID {task_id}: {e}", Fore.RED)
                     continue
 
                 if claim_result.get("code") != 0:
-                    self.log(
-                        f"❌ claimTaskReward failed for Task ID {task_id}: code {claim_result.get('code')}, message: {claim_result.get('message')}",
-                        Fore.RED,
-                    )
+                    self.log(f"❌ claimTaskReward failed for Task ID {task_id}: code {claim_result.get('code')}, message: {claim_result.get('message')}", Fore.RED)
                 else:
                     bonus_amount = claim_result.get("data", {}).get("bonusAmount")
                     feature = claim_result.get("data", {}).get("feature")
-                    self.log(
-                        f"🏆 Task Reward Claimed for Task ID {task_id}:", Fore.GREEN
-                    )
+                    self.log(f"🏆 Task Reward Claimed for Task ID {task_id}:", Fore.GREEN)
                     self.log(f"   💵 Bonus Amount: {bonus_amount}", Fore.GREEN)
                     self.log(f"   ⚙️ Feature: {feature}", Fore.GREEN)
-
-                self.log(
-                    "⏳ Waiting 2 seconds before processing the next task...", Fore.BLUE
-                )
+                # Delay 2 detik antar klaim agar tidak terlalu cepat
+                self.log("⏳ Waiting 2 seconds before processing the next task...", Fore.BLUE)
                 time.sleep(2)
 
         # ==========================
@@ -770,10 +803,7 @@ class yescoin:
             return
 
         if response.status_code != 200:
-            self.log(
-                f"❌ Request failed with status code {response.status_code} while fetching missions.",
-                Fore.RED,
-            )
+            self.log(f"❌ Request failed with status code {response.status_code} while fetching missions.", Fore.RED)
             return
 
         try:
@@ -783,10 +813,7 @@ class yescoin:
             return
 
         if result.get("code") != 0:
-            self.log(
-                f"❌ Failed to get mission list: code {result.get('code')}, message: {result.get('message')}",
-                Fore.RED,
-            )
+            self.log(f"❌ Failed to get mission list: code {result.get('code')}, message: {result.get('message')}", Fore.RED)
             return
 
         missions = result.get("data", [])
@@ -794,129 +821,97 @@ class yescoin:
             self.log("ℹ️ No missions found.", Fore.YELLOW)
         else:
             self.log(f"🔍 Found {len(missions)} missions.", Fore.BLUE)
+            # Kumpulkan mission yang belum selesai (missionStatus != 1)
+            missions_to_process = []
             for mission in missions:
                 mission_id = mission.get("missionId")
                 mission_name = mission.get("name")
                 mission_status = mission.get("missionStatus")  # 1 means completed
-                self.log(
-                    f"🚀 Processing Mission ID: {mission_id} - {mission_name}",
-                    Fore.CYAN,
-                )
+                self.log(f"🚀 Preparing Mission ID: {mission_id} - {mission_name}", Fore.CYAN)
                 if mission_status == 1:
-                    self.log(
-                        f"ℹ️ Mission ID {mission_id} is already completed.", Fore.YELLOW
-                    )
-                    continue
+                    self.log(f"ℹ️ Mission ID {mission_id} is already completed.", Fore.YELLOW)
+                else:
+                    missions_to_process.append(mission)
 
-                # 1. Click Daily Mission API
+            # --- Phase 1: Click Daily Mission ---
+            self.log("🔄 Phase 1: Clicking all missions...", Fore.CYAN)
+            clicked_missions = []
+            for mission in missions_to_process:
+                mission_id = mission.get("missionId")
                 click_url = f"{self.BASE_URL}mission/clickDailyMission"
                 try:
-                    click_response = requests.post(
-                        click_url, headers=headers, data=str(mission_id)
-                    )
+                    click_response = requests.post(click_url, headers=headers, data=str(mission_id))
                 except Exception as e:
-                    self.log(
-                        f"❌ Request error during clickDailyMission for Mission ID {mission_id}: {e}",
-                        Fore.RED,
-                    )
+                    self.log(f"❌ Request error during clickDailyMission for Mission ID {mission_id}: {e}", Fore.RED)
                     continue
 
                 try:
                     click_result = self.decode_response(click_response)
                 except Exception as e:
-                    self.log(
-                        f"❌ Error parsing JSON from clickDailyMission for Mission ID {mission_id}.",
-                        Fore.RED,
-                    )
+                    self.log(f"❌ Error parsing JSON from clickDailyMission for Mission ID {mission_id}: {e}", Fore.RED)
                     continue
 
                 if click_result.get("code") != 0:
-                    self.log(
-                        f"❌ clickDailyMission failed for Mission ID {mission_id}: code {click_result.get('code')}, message: {click_result.get('message')}",
-                        Fore.RED,
-                    )
+                    self.log(f"❌ clickDailyMission failed for Mission ID {mission_id}: code {click_result.get('code')}, message: {click_result.get('message')}", Fore.RED)
                     continue
                 else:
-                    self.log(
-                        f"👍 clickDailyMission successful for Mission ID {mission_id}.",
-                        Fore.GREEN,
-                    )
+                    self.log(f"👍 clickDailyMission successful for Mission ID {mission_id}.", Fore.GREEN)
+                    clicked_missions.append(mission)
+                # Langsung lanjut ke mission berikutnya tanpa delay
 
-                # 2. Check Daily Mission API
+            # --- Phase 2: Check Daily Mission ---
+            self.log("🔄 Phase 2: Checking all missions...", Fore.CYAN)
+            checked_missions = []
+            for mission in clicked_missions:
+                mission_id = mission.get("missionId")
                 check_url = f"{self.BASE_URL}mission/checkDailyMission"
                 try:
-                    check_response = requests.post(
-                        check_url, headers=headers, data=str(mission_id)
-                    )
+                    check_response = requests.post(check_url, headers=headers, data=str(mission_id))
                 except Exception as e:
-                    self.log(
-                        f"❌ Request error during checkDailyMission for Mission ID {mission_id}: {e}",
-                        Fore.RED,
-                    )
+                    self.log(f"❌ Request error during checkDailyMission for Mission ID {mission_id}: {e}", Fore.RED)
                     continue
 
                 try:
                     check_result = self.decode_response(check_response)
                 except Exception as e:
-                    self.log(
-                        f"❌ Error parsing JSON from checkDailyMission for Mission ID {mission_id}.",
-                        Fore.RED,
-                    )
+                    self.log(f"❌ Error parsing JSON from checkDailyMission for Mission ID {mission_id}: {e}", Fore.RED)
                     continue
 
                 if check_result.get("code") != 0:
-                    self.log(
-                        f"❌ checkDailyMission failed for Mission ID {mission_id}: code {check_result.get('code')}, message: {check_result.get('message')}",
-                        Fore.RED,
-                    )
+                    self.log(f"❌ checkDailyMission failed for Mission ID {mission_id}: code {check_result.get('code')}, message: {check_result.get('message')}", Fore.RED)
                     continue
                 else:
-                    self.log(
-                        f"🔍 checkDailyMission successful for Mission ID {mission_id}.",
-                        Fore.GREEN,
-                    )
+                    self.log(f"🔍 checkDailyMission successful for Mission ID {mission_id}.", Fore.GREEN)
+                    checked_missions.append(mission)
+                # Langsung lanjut ke mission berikutnya tanpa delay
 
-                # 3. Claim Mission Reward API
+            # --- Phase 3: Claim Mission Reward ---
+            self.log("🔄 Phase 3: Claiming rewards for all missions...", Fore.CYAN)
+            for mission in checked_missions:
+                mission_id = mission.get("missionId")
                 claim_url = f"{self.BASE_URL}mission/claimReward"
                 try:
-                    claim_response = requests.post(
-                        claim_url, headers=headers, data=str(mission_id)
-                    )
+                    claim_response = requests.post(claim_url, headers=headers, data=str(mission_id))
                 except Exception as e:
-                    self.log(
-                        f"❌ Request error during claimReward for Mission ID {mission_id}: {e}",
-                        Fore.RED,
-                    )
+                    self.log(f"❌ Request error during claimReward for Mission ID {mission_id}: {e}", Fore.RED)
                     continue
 
                 try:
                     claim_result = self.decode_response(claim_response)
                 except Exception as e:
-                    self.log(
-                        f"❌ Error parsing JSON from claimReward for Mission ID {mission_id}.",
-                        Fore.RED,
-                    )
+                    self.log(f"❌ Error parsing JSON from claimReward for Mission ID {mission_id}: {e}", Fore.RED)
                     continue
 
                 if claim_result.get("code") != 0:
-                    self.log(
-                        f"❌ claimReward failed for Mission ID {mission_id}: code {claim_result.get('code')}, message: {claim_result.get('message')}",
-                        Fore.RED,
-                    )
+                    self.log(f"❌ claimReward failed for Mission ID {mission_id}: code {claim_result.get('code')}, message: {claim_result.get('message')}", Fore.RED)
                 else:
                     bonus_amount = claim_result.get("data", {}).get("bonusAmount")
                     feature = claim_result.get("data", {}).get("feature")
-                    self.log(
-                        f"🏆 Mission Reward Claimed for Mission ID {mission_id}:",
-                        Fore.GREEN,
-                    )
+                    self.log(f"🏆 Mission Reward Claimed for Mission ID {mission_id}:", Fore.GREEN)
                     self.log(f"   💵 Bonus Amount: {bonus_amount}", Fore.GREEN)
                     self.log(f"   ⚙️ Feature: {feature}", Fore.GREEN)
-
-                self.log(
-                    "⏳ Waiting 2 seconds before processing the next mission...",
-                    Fore.BLUE,
-                )
+                # Delay 2 detik antar klaim
+                self.log("⏳ Waiting 2 seconds before processing the next mission...", Fore.BLUE)
                 time.sleep(2)
 
     def load_proxies(self, filename="proxy.txt"):

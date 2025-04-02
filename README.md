@@ -17,17 +17,20 @@ Yescoin Bot is your go-to automation tool for Yescoin, designed to simplify your
 - 🔌 **Proxy Support:** Dynamically assign proxies to each account.
 - 🧵 **Thread System:** Execute tasks concurrently using configurable threads.
 - ⏱️ **Delay Loop & Account Switching:** Configure custom delays for looping tasks and switching between accounts.
+- 💎 **Auto Open Chest:** Automatically open chests to claim rewards.
+- ♻️ **Auto Recovery Pool:** Automatically perform pool recovery to maintain account stability.
 
 Yescoin Bot is built to save you time and maximize outcomes without manual intervention.
 
 ---
 
-## 🌟 Version v1.0.1
+## 🌟 Version v1.0.2
 
 ### Updates
 
-- **Added Thread System:** Introduced a new thread system to enhance task execution efficiency.
-- **Added Proxy Option in Configuration:** Now you can enable or disable proxy usage directly in the `config.json` file.
+- **Auto Open Chest System:** The bot now automatically opens chests to claim rewards.
+- **Auto Recovery Pool System:** The bot can automatically perform pool recovery to maintain account stability.
+- **System Optimizations:** Performance and stability improvements across several features.
 
 ---
 

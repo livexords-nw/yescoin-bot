@@ -418,8 +418,8 @@ class yescoin:
                     self.log(f"📊 Current Amount: {current_amount}", Fore.GREEN)
                     self.log(f"🏆 Total Amount: {total_amount}", Fore.GREEN)
 
-                self.log("⏳ Waiting for 1 seconds before the next attempt...", Fore.BLUE)
-                time.sleep(1)
+                self.log("⏳ Waiting for 5 seconds before the next attempt...", Fore.BLUE)
+                time.sleep(5)
 
             # End of farming coin inner loop
 
